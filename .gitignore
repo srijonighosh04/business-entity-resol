@@ -1,0 +1,13 @@
+# Data & Output Files (Large TSV files)
+dataset/
+output/
+*.tsv
+*.txt
+*.log
+
+# Cache & Environment
+__pycache__/
+*.pyc
+.DS_Store
+.idea/
+.vscode/
