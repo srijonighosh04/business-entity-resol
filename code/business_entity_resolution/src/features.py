@@ -1,45 +1,18 @@
-"""
-Feature engineering for Business Entity Resolution — Person B (Matching Model).
-
-Turns a (source1_record, candidate_record) pair into a numeric feature vector.
-Deliberately has NO external lookups (fair-play rule) — everything is derived
-from the two strings + country label already in the data.
-
-Efficiency notes:
-- Normalization (suffix-stripping, tokenizing, digit extraction) is done ONCE
-  per entity and cached, not once per pair. With N candidates averaging per S1
-  entity, this cuts redundant string work by roughly Nx — the naive per-pair
-  approach re-normalizes the same S1 record for every one of its candidates.
-- Pairwise scoring is parallelized across processes for large candidate sets.
-"""
-
 import re
 import string
 from functools import partial
 from multiprocessing import Pool, cpu_count
-
 import pandas as pd
 from rapidfuzz import fuzz, distance
 
-# ---------------------------------------------------------------------------
-# Normalization
-# ---------------------------------------------------------------------------
-
-# Common legal-suffix variants seen in US/India business names.
-# Kept as a generic pattern-based list, not country-hardcoded, so it degrades
-# gracefully on France / any unseen country rather than failing silently.
 _LEGAL_SUFFIXES = [
     r"\bprivate limited\b", r"\bpvt\.?\s*ltd\.?\b", r"\bpvt\.?\b",
-    r"\blimited\b", r"\bltd\.?\b",
-    r"\bcorporation\b", r"\bcorp\.?\b",
-    r"\bincorporated\b", r"\binc\.?\b",
-    r"\bllc\b", r"\bllp\b", r"\bl\.l\.c\.?\b",
-    r"\bco\.?\b", r"\bcompany\b",
-    r"\bgmbh\b", r"\bsarl\b", r"\bsas\b", r"\bs\.a\.?\b",  # France-friendly
+    r"\blimited\b", r"\bltd\.?\b", r"\bcorporation\b", r"\bcorp\.?\b",
+    r"\bincorporated\b", r"\binc\.?\b", r"\bllc\b", r"\bllp\b", r"\bl\.l\.c\.?\b",
+    r"\bco\.?\b", r"\bcompany\b", r"\bgmbh\b", r"\bsarl\b", r"\bsas\b", r"\bs\.a\.?\b",
     r"\bplc\b", r"\bgroup\b", r"\bholdings?\b",
 ]
 _LEGAL_SUFFIX_RE = re.compile("|".join(_LEGAL_SUFFIXES), flags=re.IGNORECASE)
-
 _PUNCT_TABLE = str.maketrans({c: " " for c in string.punctuation})
 
 _ADDR_ABBREV = {
@@ -51,32 +24,24 @@ _ADDR_ABBREV_RE = [(re.compile(p, re.IGNORECASE), r) for p, r in _ADDR_ABBREV.it
 
 
 def normalize_name(name: str) -> str:
-    """Lowercase, expand '&'->'and', strip legal suffixes and punctuation."""
     if not isinstance(name, str):
         return ""
-    s = name.lower()
-    s = s.replace("&", " and ")
-    s = _LEGAL_SUFFIX_RE.sub(" ", s)
-    s = s.translate(_PUNCT_TABLE)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+    s = name.lower().replace("&", " and ")
+    s = _LEGAL_SUFFIX_RE.sub(" ", s).translate(_PUNCT_TABLE)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def normalize_address(addr: str) -> str:
-    """Lowercase, expand common abbreviations, strip punctuation."""
     if not isinstance(addr, str):
         return ""
     s = addr.lower()
     for pat, repl in _ADDR_ABBREV_RE:
         s = pat.sub(repl, s)
     s = s.translate(_PUNCT_TABLE)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def _digits(s: str) -> set:
-    """Extract number-like tokens (postal codes, street numbers) — often the
-    single strongest address-matching signal when present."""
     return set(re.findall(r"\d+", s or ""))
 
 
@@ -88,12 +53,7 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
     return len(a & b) / len(a | b)
 
 
-# ---------------------------------------------------------------------------
-# Per-entity precomputation (the efficiency win)
-# ---------------------------------------------------------------------------
-
 def build_entity_record(name: str, address: str, country: str) -> dict:
-    """Compute every per-entity derived field exactly once."""
     norm_name = normalize_name(name)
     norm_addr = normalize_address(address)
     return {
@@ -110,17 +70,12 @@ def build_entity_record(name: str, address: str, country: str) -> dict:
 
 
 def load_lookup(path: str) -> dict:
-    """Load a source TSV into {entity_id: precomputed entity record}."""
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
     return {
         row.entity_id: build_entity_record(row.business_name, row.business_address, row.country)
         for row in df.itertuples(index=False)
     }
 
-
-# ---------------------------------------------------------------------------
-# Pairwise feature vector (base features, computed from cached entity records)
-# ---------------------------------------------------------------------------
 
 BASE_FEATURE_NAMES = [
     "name_levenshtein_ratio",
@@ -139,9 +94,6 @@ BASE_FEATURE_NAMES = [
     "name_is_prefix",
 ]
 
-# Group-relative features, added after base features via add_group_relative_features.
-# These matter a lot for a precision-heavy metric: an absolute score of 0.75 means
-# something very different when it's the best of 2 candidates vs. the best of 30.
 GROUP_FEATURE_NAMES = [
     "quick_score",
     "group_size",
@@ -174,7 +126,6 @@ def _pair_features_from_records(r1: dict, r2: dict) -> list:
     ]
 
 
-# Backward-compatible raw-string entry point (used for ad-hoc debugging/tests).
 def pair_features(name1, addr1, country1, name2, addr2, country2) -> list:
     r1 = build_entity_record(name1, addr1, country1)
     r2 = build_entity_record(name2, addr2, country2)
@@ -190,11 +141,6 @@ def _compute_chunk(id_pairs, s1_lookup, s2s3_lookup):
 
 
 def add_group_relative_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds within-S1-entity relative signal. Uses a cheap composite of name+address
-    token-sort similarity + country match as the ranking key — cheap to compute,
-    good enough to rank candidates before the classifier sees them.
-    """
     df = df.copy()
     df["quick_score"] = (
         df["name_token_sort_ratio"] * 0.5
@@ -211,14 +157,6 @@ def add_group_relative_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_feature_frame(pairs_df: pd.DataFrame, s1_lookup: dict, s2s3_lookup: dict,
                          n_jobs: int = 1) -> pd.DataFrame:
-    """
-    pairs_df: columns [source1_entity_id, candidate_entity_id]  (one row per pair)
-    s1_lookup / s2s3_lookup: entity_id -> precomputed record (from load_lookup)
-    n_jobs: >1 parallelizes base-feature computation across processes. Worth it
-            once you're past a few hundred thousand pairs; for small candidate
-            sets the process-pool overhead dominates, so n_jobs=1 is fine.
-    Returns pairs_df with FEATURE_NAMES columns appended (base + group-relative).
-    """
     id_pairs = list(zip(pairs_df["source1_entity_id"], pairs_df["candidate_entity_id"]))
 
     if n_jobs > 1 and len(id_pairs) > 20_000:
@@ -239,12 +177,6 @@ def build_feature_frame(pairs_df: pd.DataFrame, s1_lookup: dict, s2s3_lookup: di
 
 
 def expand_candidate_pairs(candidate_pairs_path: str) -> pd.DataFrame:
-    """
-    candidate_pairs.tsv has one row per S1 entity with a comma-joined list.
-    Expand to one row per (source1_entity_id, candidate_entity_id) pair.
-    Rows with an empty candidate list are dropped (nothing to score) but the
-    caller must still emit them as empty-match rows in the final output.
-    """
     df = pd.read_csv(candidate_pairs_path, sep="\t", dtype=str, keep_default_na=False)
     records = []
     for row in df.itertuples(index=False):
