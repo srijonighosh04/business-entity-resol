@@ -93,16 +93,20 @@ def main():
     ap.add_argument("--seed", type=int, default=42)
     args = ap.parse_args()
 
-    s1_lookup = load_lookup(args.source1)
-    s2_lookup = load_lookup(args.source2)
-    s3_lookup = load_lookup(args.source3)
+    pairs = expand_candidate_pairs(args.candidates)
+    if pairs.empty:
+        raise SystemExit("No candidate pairs found — check --candidates path/format.")
+
+    valid_s1 = set(pairs["source1_entity_id"])
+    valid_cand = set(pairs["candidate_entity_id"])
+
+    s1_lookup = load_lookup(args.source1, valid_ids=valid_s1)
+    s2_lookup = load_lookup(args.source2, valid_ids=valid_cand)
+    s3_lookup = load_lookup(args.source3, valid_ids=valid_cand)
     s2s3_lookup = {**s2_lookup, **s3_lookup}
 
     gt = load_ground_truth(args.ground_truth)
 
-    pairs = expand_candidate_pairs(args.candidates)
-    if pairs.empty:
-        raise SystemExit("No candidate pairs found — check --candidates path/format.")
 
     pairs["label"] = [
         1 if cand in gt.get(s1, set()) else 0

@@ -69,12 +69,15 @@ def build_entity_record(name: str, address: str, country: str) -> dict:
     }
 
 
-def load_lookup(path: str) -> dict:
+def load_lookup(path: str, valid_ids: set = None) -> dict:
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+    if valid_ids is not None:
+        df = df[df["entity_id"].isin(valid_ids)]
     return {
         row.entity_id: build_entity_record(row.business_name, row.business_address, row.country)
         for row in df.itertuples(index=False)
     }
+
 
 
 BASE_FEATURE_NAMES = [
@@ -178,13 +181,11 @@ def build_feature_frame(pairs_df: pd.DataFrame, s1_lookup: dict, s2s3_lookup: di
 
 def expand_candidate_pairs(candidate_pairs_path: str) -> pd.DataFrame:
     df = pd.read_csv(candidate_pairs_path, sep="\t", dtype=str, keep_default_na=False)
-    records = []
-    for row in df.itertuples(index=False):
-        cand_str = getattr(row, "candidate_entity_ids", "")
-        if not cand_str:
-            continue
-        for cand_id in cand_str.split(","):
-            cand_id = cand_id.strip()
-            if cand_id:
-                records.append((row.source1_entity_id, cand_id))
-    return pd.DataFrame(records, columns=["source1_entity_id", "candidate_entity_id"])
+    if "candidate_entity_ids" not in df.columns:
+        return pd.DataFrame(columns=["source1_entity_id", "candidate_entity_id"])
+    df["candidate_entity_id"] = df["candidate_entity_ids"].astype(str).str.split(",")
+    df = df.explode("candidate_entity_id")
+    df["candidate_entity_id"] = df["candidate_entity_id"].str.strip()
+    df = df[df["candidate_entity_id"] != ""]
+    return df[["source1_entity_id", "candidate_entity_id"]].reset_index(drop=True)
+

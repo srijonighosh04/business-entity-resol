@@ -56,14 +56,19 @@ def main():
                      help="parallel workers for feature computation (see features.py)")
     args = ap.parse_args()
 
-    s1_lookup = load_lookup(args.source1)
-    s2_lookup = load_lookup(args.source2)
-    s3_lookup = load_lookup(args.source3)
+    pairs = expand_candidate_pairs(args.candidates)
+
+    valid_s1 = set(pairs["source1_entity_id"]) if not pairs.empty else None
+    valid_cand = set(pairs["candidate_entity_id"]) if not pairs.empty else None
+
+    df_s1_ids = pd.read_csv(args.source1, sep="\t", usecols=["entity_id"], dtype=str, keep_default_na=False)
+    all_s1_ids = list(df_s1_ids["entity_id"])
+
+    s1_lookup = load_lookup(args.source1, valid_ids=valid_s1)
+    s2_lookup = load_lookup(args.source2, valid_ids=valid_cand)
+    s3_lookup = load_lookup(args.source3, valid_ids=valid_cand)
     s2s3_lookup = {**s2_lookup, **s3_lookup}
 
-    all_s1_ids = list(s1_lookup.keys())  # every S1 test entity needs a row, even w/o candidates
-
-    pairs = expand_candidate_pairs(args.candidates)
 
     model, kind = load_model(args.model)
 

@@ -4,6 +4,7 @@ output/
 *.tsv
 *.txt
 *.log
+*.zip
 
 # Cache & Environment
 __pycache__/
