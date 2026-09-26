@@ -2,10 +2,22 @@
 Optimized end-to-end pipeline.
 Key speedup: sample 100K S1 entities for training (plenty for LightGBM),
 block full test set for submission.
+
+AWS S3 integration (optional):
+  Set BER_S3_BUCKET to automatically download datasets from S3 before
+  running and upload model + outputs to S3 when finished.
+  See src/aws_utils.py for the full list of environment variables.
 """
 import os
 import sys
 import subprocess
+
+# AWS integration – import is optional; failures are caught at call time.
+try:
+    from aws_utils import download_dataset_from_s3, upload_artifacts_to_s3
+    _AWS_AVAILABLE = True
+except Exception:
+    _AWS_AVAILABLE = False
 
 
 def run(cmd):
@@ -21,6 +33,14 @@ def run(cmd):
 def main():
     base = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     src = os.path.dirname(__file__)
+
+    # ------------------------------------------------------------------
+    # AWS S3 — Download dataset files (no-op if BER_S3_BUCKET not set)
+    # ------------------------------------------------------------------
+    if _AWS_AVAILABLE:
+        download_dataset_from_s3(base)
+    else:
+        print("[aws_utils] aws_utils not available – skipping S3 download.", flush=True)
 
     train_s1 = os.path.join(base, "dataset", "train", "train_source1.tsv")
     train_s2 = os.path.join(base, "dataset", "train", "train_source2.tsv")
@@ -94,6 +114,20 @@ def main():
     if os.path.exists(validator):
         run(f'python "{validator}" --matching "{match_out}" --candidate "{cand_test}" '
             f'--test-dir "{os.path.join(base, "dataset", "test")}"')
+
+    # ------------------------------------------------------------------
+    # AWS S3 — Upload model + outputs (no-op if BER_S3_BUCKET not set)
+    # ------------------------------------------------------------------
+    print("=" * 60, flush=True)
+    print("STEP 7: Uploading artifacts to S3 (if configured)", flush=True)
+    print("=" * 60, flush=True)
+    if _AWS_AVAILABLE:
+        upload_artifacts_to_s3(
+            model_path=model_f,
+            output_dir=os.path.join(base, "output"),
+        )
+    else:
+        print("[aws_utils] aws_utils not available – skipping S3 upload.", flush=True)
 
     print("\n" + "=" * 60, flush=True)
     print("DONE! Outputs ready in output/", flush=True)
