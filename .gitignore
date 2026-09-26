@@ -2,9 +2,13 @@
 dataset/
 output/
 *.tsv
-*.txt
 *.log
 *.zip
+
+# Ignore all .txt EXCEPT requirements and model
+*.txt
+!requirements.txt
+!model.txt
 
 # Cache & Environment
 __pycache__/

@@ -216,7 +216,14 @@ def generate_pdf(filename="Project_Summary_Guide.pdf"):
          "Validates output files and builds the final submission package.",
          "• Executes the organizers' official validator (<code>utils/validate_submission.py</code>) &rarr; <b>PASS (exit 0)</b>.<br/>"
          "• Verifies 100% test entity coverage (exactly 1,732,544 rows, 0 duplicate IDs, 0 formatting errors).<br/>"
-         "• Compresses code, outputs, and documentation into <code>final_submission_package.zip</code>.")
+         "• Compresses code, outputs, and documentation into <code>final_submission_package.zip</code>."),
+
+        ("Step 8: AWS S3 Artifact Sync (Cloud Integration)",
+         "Optionally downloads datasets from S3 before the run and uploads outputs + model after completion.",
+         "• <b>Download (pre-run):</b> <code>aws_utils.download_dataset_from_s3()</code> pulls all 7 TSV dataset files from <code>s3://&lt;BER_S3_BUCKET&gt;/&lt;prefix&gt;/dataset/</code> into the local <code>dataset/</code> directory, skipping files already present.<br/>"
+         "• <b>Upload (post-run):</b> <code>aws_utils.upload_artifacts_to_s3()</code> pushes <code>model.txt</code>, <code>matching_results.tsv</code>, and <code>candidate_pairs.tsv</code> to <code>s3://&lt;BER_S3_BUCKET&gt;/&lt;prefix&gt;/artifacts/</code>.<br/>"
+         "• <b>Zero-config fallback:</b> Both functions are no-ops when <code>BER_S3_BUCKET</code> env-var is unset — the pipeline runs identically without AWS credentials.<br/>"
+         "• <b>Why:</b> Enables the pipeline to run on any cloud VM (EC2, SageMaker) without manual data transfer, and persists trained models centrally in S3 for reproducibility.")
     ]
     
     for title, summary, details in steps:
@@ -253,7 +260,11 @@ def generate_pdf(filename="Project_Summary_Guide.pdf"):
          
         [Paragraph("<b>Streaming I/O</b>", table_cell_bold),
          Paragraph("Big Data Execution Engine", table_cell),
-         Paragraph("Line-by-line buffered file reading and writing directly to disk.", table_cell)]
+         Paragraph("Line-by-line buffered file reading and writing directly to disk.", table_cell)],
+
+        [Paragraph("<b>AWS S3 (boto3)</b>", table_cell_bold),
+         Paragraph("Cloud Dataset & Artifact Store", table_cell),
+         Paragraph("Downloads raw TSVs from S3 before the run; uploads model.txt and output TSVs after the run. Optional — no-op when BER_S3_BUCKET is unset.", table_cell)]
     ]
     
     t_tech = Table(tech_table_data, colWidths=[100, 160, 280])
@@ -279,6 +290,63 @@ def generate_pdf(filename="Project_Summary_Guide.pdf"):
         "&nbsp;&nbsp;&nbsp;&nbsp;3. <code>final_submission_package.zip</code> (61.1 MB) — Complete reproducible submission archive.<br/>"
         "&nbsp;&nbsp;&nbsp;&nbsp;4. <code>Documentation_template.md</code> — Detailed technical methodology report.",
         body_style
+    ))
+    story.append(Spacer(1, 6))
+
+    # Section 5: AWS S3 Integration
+    story.append(Paragraph("5. AWS S3 Integration", h1_style))
+    story.append(Paragraph(
+        "The pipeline includes an optional AWS S3 integration layer implemented in <code>src/aws_utils.py</code>. "
+        "It is activated exclusively via environment variables — when not set, the pipeline behaves identically to its original local-only mode.",
+        body_style
+    ))
+
+    aws_table_data = [
+        [Paragraph("<b>Environment Variable</b>", table_cell_bold),
+         Paragraph("<b>Default</b>", table_cell_bold),
+         Paragraph("<b>Description</b>", table_cell_bold)],
+
+        [Paragraph("<code>BER_S3_BUCKET</code>", table_cell),
+         Paragraph("(unset — S3 disabled)", table_cell),
+         Paragraph("S3 bucket name. Setting this enables all S3 steps.", table_cell)],
+
+        [Paragraph("<code>BER_S3_PREFIX</code>", table_cell),
+         Paragraph("<code>business_entity_resolution</code>", table_cell),
+         Paragraph("Key prefix inside the bucket for all dataset and artifact paths.", table_cell)],
+
+        [Paragraph("<code>AWS_REGION</code>", table_cell),
+         Paragraph("<code>us-east-1</code>", table_cell),
+         Paragraph("AWS region for the boto3 S3 client session.", table_cell)],
+    ]
+
+    t_aws = Table(aws_table_data, colWidths=[150, 160, 230])
+    t_aws.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F0FFF4')),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E0')),
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+    ]))
+    story.append(t_aws)
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "<b>Expected S3 Layout (under prefix):</b><br/>"
+        "<code>business_entity_resolution/dataset/train/train_source1.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/train/train_source2.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/train/train_source3.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/train/train_ground_truth.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/test/test_source1.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/test/test_source2.tsv</code><br/>"
+        "<code>business_entity_resolution/dataset/test/test_source3.tsv</code>",
+        bullet_style
+    ))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(
+        "<b>Artifacts Uploaded After Each Run:</b><br/>"
+        "<code>business_entity_resolution/artifacts/model.txt</code><br/>"
+        "<code>business_entity_resolution/artifacts/output/matching_results.tsv</code><br/>"
+        "<code>business_entity_resolution/artifacts/output/candidate_pairs.tsv</code>",
+        bullet_style
     ))
     
     doc.build(story, canvasmaker=NumberedCanvas)
